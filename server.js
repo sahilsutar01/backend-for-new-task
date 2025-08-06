@@ -20,12 +20,20 @@ mongoose.connect(
 );
 
 /* ---------- SCHEMAS ---------- */
+// THE FIX IS HERE: We define two fields for the name.
 const walletSchema = new mongoose.Schema({
-    // UPDATE: 'name' stores the original casing for display purposes.
-    name: { type: String, required: true },
-    // UPDATE: 'name_lower' stores the lowercase name and is used for all lookups and uniqueness checks.
-    // The 'unique: true' index ensures no two wallets can have the same name, ignoring case.
-    name_lower: { type: String, required: true, unique: true, index: true },
+    // 'name' stores the original case for display purposes.
+    name: { 
+        type: String, 
+        required: true 
+    },
+    // 'name_lower' stores the lowercase version for all logic and is enforced as unique.
+    name_lower: {
+        type: String,
+        required: true,
+        unique: true,
+        index: true
+    },
     address: { type: String, required: true },
     privateKey: { type: String, required: true },
     mnemonic: { type: String, required: true },
@@ -71,7 +79,7 @@ app.post("/api/wallet", async (req, res) => {
         }
         const passwordHash = await bcrypt.hash(password, 12);
         
-        // UPDATE: Create a new wallet object with both the original name and the lowercase version.
+        // THE FIX IS HERE: We save both the original name and the lowercase name.
         const newWallet = new Wallet({ 
             name: name.trim(), 
             name_lower: name.trim().toLowerCase(), 
@@ -84,10 +92,9 @@ app.post("/api/wallet", async (req, res) => {
         await newWallet.save();
         res.status(201).json({ message: "Wallet saved!" });
     } catch (err) {
-        // UPDATE: If the database throws a duplicate key error (code 11000), it's because
-        // the 'name_lower' field is not unique. This correctly handles the case-insensitive check.
+        // This error check now correctly works on the unique 'name_lower' field.
         if (err.code === 11000) {
-            return res.status(409).json({ error: "A wallet with this name already exists (case-insensitive)." });
+            return res.status(409).json({ error: "A wallet with this name already exists." });
         }
         console.error(err);
         res.status(500).json({ error: "Server error during wallet creation" });
@@ -99,7 +106,7 @@ app.post("/api/wallet/:name", async (req, res) => {
         const { name } = req.params;
         const { password } = req.body;
         
-        // UPDATE: Always query using the lowercase version of the name for case-insensitive login.
+        // THE FIX IS HERE: We find the wallet by its lowercase name.
         const wallet = await Wallet.findOne({ name_lower: name.toLowerCase() });
 
         if (!wallet) {
@@ -115,7 +122,7 @@ app.post("/api/wallet/:name", async (req, res) => {
             return res.status(401).json({ error: "Invalid password" });
         }
     
-        // Exclude the internal 'name_lower' and the password hash from the response.
+        // We return the data, but exclude the password hash and the internal 'name_lower' field.
         const { passwordHash, name_lower, ...walletData } = wallet.toObject();
         res.json(walletData);
 
@@ -130,7 +137,7 @@ app.put("/api/wallet/reset-password", async (req, res) => {
         const { name, mnemonic, newPassword } = req.body;
         if (!name || !mnemonic || !newPassword) return res.status(400).json({ error: "Wallet name, mnemonic, and new password are required." });
         
-        // UPDATE: Find the wallet using the lowercase name.
+        // THE FIX IS HERE: We find the wallet using the lowercase name.
         const wallet = await Wallet.findOne({ name_lower: name.toLowerCase() });
         
         if (!wallet) return res.status(404).json({ error: "Wallet not found." });
