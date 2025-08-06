@@ -20,19 +20,15 @@ mongoose.connect(
 );
 
 /* ---------- SCHEMAS ---------- */
-// THE FIX IS HERE: We define two fields for the name.
+// THE FIX IS HERE: Implementing the same feature as your friend's code.
 const walletSchema = new mongoose.Schema({
-    // 'name' stores the original case for display purposes.
     name: { 
         type: String, 
-        required: true 
-    },
-    // 'name_lower' stores the lowercase version for all logic and is enforced as unique.
-    name_lower: {
-        type: String,
+        unique: true, 
         required: true,
-        unique: true,
-        index: true
+        // This automatically converts the name to lowercase before saving,
+        // and the 'unique' index will then prevent duplicates regardless of case.
+        lowercase: true 
     },
     address: { type: String, required: true },
     privateKey: { type: String, required: true },
@@ -79,22 +75,14 @@ app.post("/api/wallet", async (req, res) => {
         }
         const passwordHash = await bcrypt.hash(password, 12);
         
-        // THE FIX IS HERE: We save both the original name and the lowercase name.
-        const newWallet = new Wallet({ 
-            name: name.trim(), 
-            name_lower: name.trim().toLowerCase(), 
-            address, 
-            privateKey, 
-            mnemonic, 
-            passwordHash 
-        });
-
-        await newWallet.save();
+        // No need to manually convert to lowercase here, the schema does it automatically.
+        await new Wallet({ name, address, privateKey, mnemonic, passwordHash }).save();
+        
         res.status(201).json({ message: "Wallet saved!" });
     } catch (err) {
-        // This error check now correctly works on the unique 'name_lower' field.
+        // The unique index on the lowercase name will trigger this error correctly.
         if (err.code === 11000) {
-            return res.status(409).json({ error: "A wallet with this name already exists." });
+            return res.status(409).json({ error: "Wallet name already exists" });
         }
         console.error(err);
         res.status(500).json({ error: "Server error during wallet creation" });
@@ -106,13 +94,14 @@ app.post("/api/wallet/:name", async (req, res) => {
         const { name } = req.params;
         const { password } = req.body;
         
-        // THE FIX IS HERE: We find the wallet by its lowercase name.
-        const wallet = await Wallet.findOne({ name_lower: name.toLowerCase() });
+        // Find the wallet by its name. Mongoose handles the case-insensitivity
+        // because the query name will be compared against the lowercase name in the DB.
+        const wallet = await Wallet.findOne({ name: name.toLowerCase() });
 
         if (!wallet) {
             return res.status(404).json({ error: "Wallet not found" });
         }
-        
+
         if (!wallet.passwordHash) {
             return res.status(401).json({ error: "Invalid password or corrupted wallet data." });
         }
@@ -122,8 +111,8 @@ app.post("/api/wallet/:name", async (req, res) => {
             return res.status(401).json({ error: "Invalid password" });
         }
     
-        // We return the data, but exclude the password hash and the internal 'name_lower' field.
-        const { passwordHash, name_lower, ...walletData } = wallet.toObject();
+        // The wallet object will have the name in lowercase, which is fine for the app's logic.
+        const { passwordHash, ...walletData } = wallet.toObject();
         res.json(walletData);
 
     } catch (err) {
@@ -137,8 +126,7 @@ app.put("/api/wallet/reset-password", async (req, res) => {
         const { name, mnemonic, newPassword } = req.body;
         if (!name || !mnemonic || !newPassword) return res.status(400).json({ error: "Wallet name, mnemonic, and new password are required." });
         
-        // THE FIX IS HERE: We find the wallet using the lowercase name.
-        const wallet = await Wallet.findOne({ name_lower: name.toLowerCase() });
+        const wallet = await Wallet.findOne({ name: name.toLowerCase() });
         
         if (!wallet) return res.status(404).json({ error: "Wallet not found." });
         if (wallet.mnemonic !== mnemonic.trim()) return res.status(401).json({ error: "The provided Mnemonic Phrase is incorrect." });
